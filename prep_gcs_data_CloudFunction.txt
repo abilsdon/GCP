@@ -1,0 +1,49 @@
+import json
+import re
+import csv
+from google.cloud import storage
+
+def prep_gcs_data(event, context):
+    ky = ''
+    vl=''
+    sk=''
+    coors = ''
+    
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket('lndng_bckt')
+    #Get the contents of the file GEvectors.geojson
+    blob = bucket.blob('GEvectors.geojson')
+    content = blob.download_as_string()
+    content = content.decode('utf-8')
+    #Fix some attributes that have underscores, JSON doesn't like them
+    content = re.sub(r'system:',r'system_',content)
+    content = re.sub(r'google:',r'system_',content)
+
+    feature_dict = json.loads(content)
+    
+    #Get ready for writing to the Processed bucket
+    bucket_prc = storage.Client().bucket('prcssd_bckt')
+    blob_prc_geo = storage.Blob('geo.csv',bucket_prc)
+    blob_prc_prpt = storage.Blob('prop.csv',bucket_prc)
+    
+    schema = None
+    for obj in feature_dict['features']:
+        props = obj['properties']
+        print(props)
+        for key, value in props.items():
+            sk = str(key)
+            if sk.find('system') != 0:
+                ky += str(key) + ','
+                vl += str(value) + ','
+        ky += '\n'
+        vl += '\n'
+        blob_prc_prpt.upload_from_string(ky + vl)
+        
+        geo = obj['geometry']
+        scoors = geo['coordinates']
+        coors ='long,lat'
+        for i in range(len(scoors)):
+            for j in range(len(scoors[i])):
+                coors += ','.join(map(str,scoors[i][j]))
+        blob_prc_geo.upload_from_string(coors)
+    return blob_prc_geo.name, content
